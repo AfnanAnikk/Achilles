@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Achilles — Conserved-Target Discovery Pipeline</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+  :root{
+    --ink:#152420;
+    --ink-soft:#3d4d47;
+    --paper:#FBFAF6;
+    --panel:#F1F0E9;
+    --teal:#0E5C55;
+    --teal-deep:#0A413C;
+    --amber:#C1440E;
+    --amber-tint:#FBEAE0;
+    --teal-tint:#E7F0EE;
+    --line:#DAD7CC;
+    --mono-tag:#5B6660;
+  }
+
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .wrap{
+    max-width:780px;
+    margin:0 auto;
+    padding:0 28px 120px;
+  }
+
+  /* ---------- Drift motif (signature element) ---------- */
+  .drift{
+    width:100%;
+    height:46px;
+    display:block;
+  }
+  .drift path{
+    fill:none;
+    stroke:var(--teal);
+    stroke-width:1.6;
+    opacity:0.55;
+  }
+  .drift circle{
+    fill:var(--amber);
+  }
+
+  /* ---------- Hero ---------- */
+  header.hero{
+    padding:64px 0 20px;
+    border-bottom:1px solid var(--line);
+    margin-bottom:8px;
+  }
+  .eyebrow{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12.5px;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    color:var(--mono-tag);
+    margin:0 0 22px;
+  }
+  .eyebrow::before{
+    content:"●";
+    color:var(--amber);
+    margin-right:8px;
+    font-size:9px;
+    vertical-align:middle;
+  }
+  h1.title{
+    font-family:'Fraunces',serif;
+    font-optical-sizing:auto;
+    font-weight:600;
+    font-size:clamp(34px,5vw,50px);
+    line-height:1.08;
+    letter-spacing:-0.01em;
+    margin:0 0 18px;
+    color:var(--teal-deep);
+  }
+  .subtitle{
+    font-size:18px;
+    color:var(--ink-soft);
+    max-width:560px;
+    margin:0 0 30px;
+  }
+  .meta-row{
+    display:flex;
+    gap:22px;
+    flex-wrap:wrap;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    color:var(--mono-tag);
+    padding-bottom:28px;
+  }
+  .meta-row span b{color:var(--ink);font-weight:500;}
+
+  /* ---------- Sections ---------- */
+  section{
+    padding:52px 0 8px;
+  }
+  section + section{
+    border-top:1px solid var(--line);
+  }
+  .sec-head{
+    display:flex;
+    align-items:baseline;
+    gap:14px;
+    margin-bottom:22px;
+  }
+  .sec-num{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:13px;
+    color:var(--amber);
+    font-weight:500;
+  }
+  h2{
+    font-family:'Fraunces',serif;
+    font-weight:600;
+    font-size:27px;
+    margin:0;
+    color:var(--teal-deep);
+    letter-spacing:-0.01em;
+  }
+  h3{
+    font-family:'Inter',sans-serif;
+    font-weight:700;
+    font-size:16px;
+    color:var(--teal-deep);
+    margin:26px 0 8px;
+  }
+  p{margin:0 0 16px; font-size:16px; color:var(--ink);}
+  .lede{
+    font-size:19px;
+    line-height:1.6;
+    color:var(--ink);
+    font-family:'Fraunces',serif;
+    font-weight:400;
+    margin-bottom:20px;
+  }
+  .lede b{font-weight:600; color:var(--teal-deep); font-style:normal;}
+  .stat-pull{
+    display:flex;
+    gap:28px;
+    margin:22px 0 26px;
+    flex-wrap:wrap;
+  }
+  .stat{
+    background:var(--amber-tint);
+    border-radius:6px;
+    padding:16px 20px;
+    min-width:150px;
+    flex:1;
+  }
+  .stat .num{
+    font-family:'Fraunces',serif;
+    font-weight:700;
+    font-size:30px;
+    color:var(--amber);
+    line-height:1;
+    display:block;
+    margin-bottom:6px;
+  }
+  .stat .cap{
+    font-size:12.5px;
+    color:var(--ink-soft);
+    line-height:1.4;
+  }
+  .stat-source{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--mono-tag);
+    margin-top:-8px;
+    margin-bottom:20px;
+  }
+
+  ul.clean{
+    margin:0 0 18px;
+    padding:0;
+    list-style:none;
+  }
+  ul.clean li{
+    position:relative;
+    padding-left:22px;
+    margin-bottom:11px;
+    font-size:15.5px;
+    color:var(--ink);
+  }
+  ul.clean li::before{
+    content:"—";
+    position:absolute;
+    left:0;
+    color:var(--teal);
+    font-weight:600;
+  }
+
+  /* ---------- Pipeline stages ---------- */
+  .stage{
+    display:grid;
+    grid-template-columns:64px 1fr;
+    gap:18px;
+    padding:20px 0;
+    border-top:1px dashed var(--line);
+  }
+  .stage:first-of-type{border-top:none;}
+  .stage-tag{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    color:var(--teal);
+    font-weight:500;
+    padding-top:3px;
+  }
+  .stage h3{margin:0 0 8px;}
+  .stage p{font-size:15px; margin-bottom:8px;}
+  .stage-tools{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11.5px;
+    color:var(--mono-tag);
+    background:var(--teal-tint);
+    display:inline-block;
+    padding:4px 10px;
+    border-radius:4px;
+    margin-top:4px;
+  }
+
+  /* ---------- Dual-track (Stage 03) ---------- */
+  .track-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:16px;
+    margin:18px 0 14px;
+  }
+  .track{
+    border-radius:7px;
+    padding:18px 18px 14px;
+  }
+  .track-a{
+    background:var(--teal-tint);
+    border:1px solid #c4dbd7;
+  }
+  .track-b{
+    background:var(--amber-tint);
+    border:1px solid #e8c9b8;
+  }
+  .track-label{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    font-weight:600;
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+    margin:0 0 8px;
+    display:flex;
+    align-items:center;
+    gap:7px;
+  }
+  .track-a .track-label{color:var(--teal-deep);}
+  .track-b .track-label{color:var(--amber);}
+  .track-label::before{
+    content:'';
+    display:inline-block;
+    width:8px;
+    height:8px;
+    border-radius:50%;
+    flex-shrink:0;
+  }
+  .track-a .track-label::before{background:var(--teal);}
+  .track-b .track-label::before{background:var(--amber);}
+  .track h4{
+    font-family:'Inter',sans-serif;
+    font-size:14px;
+    font-weight:700;
+    margin:0 0 7px;
+    color:var(--ink);
+  }
+  .track p{
+    font-size:13.5px;
+    margin-bottom:8px;
+    color:var(--ink-soft);
+    line-height:1.55;
+  }
+  .track .stage-tools{
+    font-size:11px;
+    background:rgba(255,255,255,0.55);
+    margin-top:2px;
+  }
+  .converge{
+    margin:4px 0 14px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:7px;
+    padding:16px 18px;
+    display:grid;
+    grid-template-columns:auto 1fr;
+    gap:12px;
+    align-items:start;
+  }
+  .converge-icon{
+    font-size:18px;
+    line-height:1;
+    padding-top:2px;
+  }
+  .converge h4{
+    font-family:'Inter',sans-serif;
+    font-size:14px;
+    font-weight:700;
+    color:var(--teal-deep);
+    margin:0 0 5px;
+  }
+  .converge p{
+    font-size:13.5px;
+    color:var(--ink-soft);
+    margin:0;
+    line-height:1.55;
+  }
+  .gate-tag{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--mono-tag);
+    background:var(--teal-tint);
+    display:inline-block;
+    padding:3px 9px;
+    border-radius:4px;
+    margin-top:7px;
+  }
+  @media(max-width:600px){
+    .track-grid{grid-template-columns:1fr;}
+    .converge{grid-template-columns:1fr;}
+    .converge-icon{display:none;}
+  }
+
+  /* ---------- Table ---------- */
+  table{
+    width:100%;
+    border-collapse:collapse;
+    margin:8px 0 24px;
+    font-size:14px;
+  }
+  th{
+    background:var(--teal-deep);
+    color:#fff;
+    text-align:left;
+    font-weight:600;
+    font-size:12.5px;
+    letter-spacing:0.02em;
+    padding:10px 14px;
+  }
+  td{
+    padding:12px 14px;
+    border-bottom:1px solid var(--line);
+    vertical-align:top;
+    color:var(--ink);
+  }
+  tr:nth-child(even) td{background:var(--panel);}
+
+  /* ---------- Users grid ---------- */
+  .users{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:14px;
+    margin:6px 0 22px;
+  }
+  .user-card{
+    background:var(--panel);
+    border-radius:6px;
+    padding:16px 18px;
+    border-left:3px solid var(--teal);
+  }
+  .user-card b{
+    display:block;
+    font-size:14.5px;
+    color:var(--teal-deep);
+    margin-bottom:6px;
+  }
+  .user-card span{font-size:13.5px; color:var(--ink-soft); line-height:1.5;}
+
+  footer{
+    padding:44px 0 0;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11.5px;
+    color:var(--mono-tag);
+    text-align:center;
+  }
+
+  @media (max-width:600px){
+    .wrap{padding:0 18px 80px;}
+    header.hero{padding:44px 0 16px;}
+    .stage{grid-template-columns:1fr; gap:6px;}
+    .users{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <h1 class="title">Achilles</h1>
+    <p class="subtitle">Every germ has one spot that never changes. Achilles finds it — then designs the cure that hits it.</p>
+    <svg class="drift" viewBox="0 0 760 46" preserveAspectRatio="none">
+      <path d="M0,23 C60,8 100,38 160,23 C220,8 260,38 320,23 C380,8 420,38 480,23 C540,8 580,38 640,23 C680,12 720,30 760,23"/>
+      <circle cx="160" cy="23" r="3.5"/>
+      <circle cx="480" cy="23" r="3.5"/>
+      <circle cx="640" cy="23" r="3.5"/>
+    </svg>
+    <div class="meta-row">
+      <span>Category: <b>Health &amp; Life Sciences</b></span>
+      <span>Stages: <b>3</b></span>
+      <span>Core tools: <b>AlphaFold · AutoDock · RFdiffusion</b></span>
+    </div>
+  </header>
+
+  <section id="problem">
+    <div class="sec-head"><span class="sec-num">01</span><h2>Problem Statement</h2></div>
+
+    <p class="lede">A drug doesn't usually fail because scientists got the chemistry wrong. It fails because the germ it was built to fight <b>simply changed</b> — and the weak spot the drug was aimed at isn't there anymore.</p>
+
+    <div class="stat-pull">
+      <div class="stat"><span class="num">1.27M</span><span class="cap">deaths directly caused by drug-resistant infections in 2019 — more than malaria</span></div>
+      <div class="stat"><span class="num">4.95M</span><span class="cap">deaths worldwide linked to drug resistance that same year</span></div>
+    </div>
+    <p class="stat-source">Source: Global Research on Antimicrobial Resistance (GRAM) Project, published in The Lancet, 2022</p>
+
+    <p>Here's the gap. AI tools like AlphaFold can already show us exactly where a germ is weak. Separately, health researchers keep a running record of how real infection samples from around the world are changing over time — basically an early-warning log of new mutations as they show up. Both of these already exist, often in the same public databases. But almost nobody puts them together to ask the one question that matters: <b>is this weak spot still going to be there next year — or has the germ already started changing around it?</b></p>
+
+    <p>That gap shows up in a few concrete ways:</p>
+    <ul class="clean">
+      <li>Weak spots get picked because they look easy to attack today, not because they're likely to still be there in a year — so a candidate can look perfect on screen and still be outdated by the time it reaches a lab.</li>
+      <li>Finding weak spots, tracking mutations, and designing a treatment are usually three separate jobs, done by three separate teams, on three separate timelines — so nothing catches the mismatch until it's too late.</li>
+      <li>For outbreak-prone places like Bangladesh — recurring Dengue outbreaks, more drug-resistant infections every year — this isn't a small detail. It's the difference between a treatment that still works against the real thing, and one that's already out of date.</li>
+    </ul>
+
+    <p>Every germ is quietly running its own experiment against every drug we build. This project just asks: <b>why aren't we running that experiment first?</b></p>
+  </section>
+
+  <section id="solution">
+    <div class="sec-head"><span class="sec-num">02</span><h2>Proposed Solution</h2></div>
+    <p>A single three-stage pipeline — not three separate tools — that finds a target, tests it against real mutation data, and only then designs something built to survive what comes next.</p>
+
+    <div class="stage">
+      <span class="stage-tag">STAGE 01</span>
+      <div>
+        <h3>Find the Target</h3>
+        <p>Pull protein sequences of a priority germ from public databases like UniProt. Use AlphaFold / ColabFold to predict 3D structure and locate a druggable binding pocket using <i>fpocket</i>, then screen public small-molecule libraries from PubChem against it using AutoDock Vina to shortlist candidates by binding affinity (kcal/mol).</p>
+        <span class="stage-tools">NCBI Virus · UniProt · AlphaFold · fpocket · PubChem · AutoDock Vina</span>
+      </div>
+    </div>
+
+    <div class="stage">
+      <span class="stage-tag">STAGE 02</span>
+      <div>
+        <h3>Test It Against Real Mutations</h3>
+        <p>Pull real-world mutation records for the same germ from CARD and BV-BRC/PATRIC (for drug-resistant bacteria) or NCBI Virus Variation and GISAID (for Dengue). Score how much each position in the pocket varies across real samples using a conservation metric (Shannon entropy) — a low score means the spot has stayed the same across many samples, a high score means it's already shifting. AlphaFold is used only to confirm the pocket's geometry is still intact on the mutated structure, not to score how damaging each mutation is. Together this produces a live map of which targets are still reliable, and which are already being dodged.</p>
+        <span class="stage-tools">CARD · BV-BRC/PATRIC · NCBI Virus Variation · GISAID · Shannon entropy · AlphaFold (structure check)</span>
+      </div>
+    </div>
+
+    <div class="stage">
+      <span class="stage-tag">STAGE 03</span>
+      <div>
+        <h3>Design Something That Survives It</h3>
+        <p>For every pocket confirmed as conserved in Stage 02, pull prior-art records from the <i>Immune Epitope Database (IEDB)</i>, the <i>Protein Data Bank (PDB)</i>, and the AMP-specific databases <i>APD3</i> and <i>DBAASP</i> to establish what has already been attempted against this pocket class. Stage 03 then runs two parallel design tracks simultaneously — one anchored to 3D pocket geometry, one anchored to antimicrobial peptide biology — so that the final shortlist is both structurally precise and biologically potent. Both tracks feed into a single convergence gate before anything is forwarded for wet-lab consideration.</p>
+
+        <div class="track-grid">
+          <div class="track track-a">
+            <p class="track-label">Track A — Structure</p>
+            <h4>Pocket-Anchored Binder (RFdiffusion)</h4>
+            <p>Use <i>RFdiffusion</i> to generate de-novo backbone scaffolds conditioned on the exact conserved pocket coordinates from Stage 02 — producing candidate binder shapes fitted to the target geometry rather than a generic template. Feed those backbones into <i>ProteinMPNN</i> to recover amino-acid sequences that fold stably onto each scaffold. Score binding free energy (ΔΔG, kcal/mol) with <i>Rosetta FastRelax</i>, keeping only candidates below −1.5 kcal/mol, then filter for solubility and aggregation risk via <i>CamSol</i>. Best suited for viral targets and well-defined deep pockets where structural lock-and-key fit is the primary requirement.</p>
+            <span class="stage-tools">RFdiffusion · ProteinMPNN · Rosetta FastRelax (ΔΔG) · CamSol</span>
+          </div>
+          <div class="track track-b">
+            <p class="track-label">Track B — AMP</p>
+            <h4>Antimicrobial Peptide (AMP Diffusion)</h4>
+            <p>Use an AMP-specific latent diffusion model (e.g. <i>Diff-AMP</i> or <i>AMPGen</i>) operating in the ESM-2 protein language model embedding space, conditioned on the pocket's epitope sequence extracted in Stage 01. This generates short peptide candidates (15–40 aa) with cationic, amphipathic character proven to disrupt bacterial membranes. Score antimicrobial probability with <i>APEX</i> (≥ 0.8 threshold), remove hemolytic candidates with <i>ToxGIN</i> (score &lt; 0.5), and apply the same <i>CamSol</i> solubility gate. Best suited for bacterial targets such as drug-resistant <i>A. baumannii</i> where membrane disruption adds a second mechanism independent of pocket binding.</p>
+            <span class="stage-tools">APD3 · DBAASP · Diff-AMP / AMPGen (ESM-2) · APEX · ToxGIN · CamSol</span>
+          </div>
+        </div>
+
+        <div class="converge">
+          <div class="converge-icon">⇣</div>
+          <div>
+            <h4>Convergence Gate — AlphaFold-Multimer</h4>
+            <p>All survivors from both tracks are fed into <i>AlphaFold-Multimer</i> to model the full binder–target complex. A candidate passes only when (1) the interface confidence score is ipTM ≥ 0.7, and (2) ≥ 60 % of the predicted interface contacts land on the conserved residues that Stage 02 confirmed are not drifting — not on the variable flanking regions. This shared gate ensures that whether a candidate arrived via Track A or Track B, it is verified to engage the same mutation-resistant anchor. The output is a single ranked shortlist — each entry carrying a backbone or sequence, a ΔΔG or AMP score, and a confirmed interface map — ready for prioritisation before any wet-lab commitment is made.</p>
+            <span class="gate-tool">IEDB · PDB · AlphaFold-Multimer · ipTM ≥ 0.7 · conserved-residue interface check ≥ 60 %</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tools">
+    <div class="sec-head"><span class="sec-num">03</span><h2>Data Sources &amp; Tools</h2></div>
+    <table>
+      <tr><th>Stage</th><th>Data Sources</th><th>Tools</th></tr>
+      <tr><td>Target discovery</td><td>NCBI Virus, UniProt, ZINC20, PubChem</td><td>AlphaFold 3 / Multimer, fpocket, AutoDock Vina, DiffDock</td></tr>
+      <tr><td>Mutation tracking</td><td>CARD, BV-BRC/PATRIC, NCBI Virus Variation, GISAID</td><td>Shannon entropy (conservation score), AlphaFold (pocket structure check)</td></tr>
+      <tr><td>Binder design — Track A (Structure)</td><td>IEDB, Protein Data Bank (PDB)</td><td>RFdiffusion, ProteinMPNN, Rosetta FastRelax (ΔΔG), CamSol</td></tr>
+      <tr><td>Binder design — Track B (AMP)</td><td>APD3, DBAASP</td><td>Diff-AMP / AMPGen (ESM-2 latent diffusion), APEX (AMP classifier), ToxGIN (hemolysis filter), CamSol</td></tr>
+      <tr><td>Convergence gate</td><td>—</td><td>AlphaFold-Multimer (ipTM ≥ 0.7), conserved-residue interface check (≥ 60 %)</td></tr>
+    </table>
+  </section>
+
+  <section id="scope">
+    <div class="sec-head"><span class="sec-num">04</span><h2>Demonstration Scope</h2></div>
+    <p>To stay achievable and complete rather than broad and shallow, the prototype will select <b>one germ and one protein target</b> — for example a resistance-related protein in drug-resistant <i>Acinetobacter baumannii</i>, or a Dengue surface protein — and carry it fully through all three stages. Additional germs are framed as future work, not part of the initial demo.</p>
+  </section>
+
+  <section id="impact">
+    <div class="sec-head"><span class="sec-num">05</span><h2>Impact &amp; Sustainability</h2></div>
+    <p>Who would actually use this, and how it outlives the competition:</p>
+    <div class="users">
+      <div class="user-card"><b>Surveillance labs</b><span>A resistance-risk dashboard for choosing which targets are still viable, updated as new isolate data comes in.</span></div>
+      <div class="user-card"><b>Drug-discovery groups</b><span>A pre-screening layer that filters out targets likely to fail before committing wet-lab resources.</span></div>
+      <div class="user-card"><b>Public health agencies</b><span>A rapid-response tool for early candidate design against emerging outbreaks.</span></div>
+      <div class="user-card"><b>Long-term model</b><span>Open infrastructure, grant / public-health-agency funded, with an optional tier for dedicated compute or custom germ panels.</span></div>
+    </div>
+  </section>
+
+  <footer>Achilles — Conserved-Target Discovery Pipeline</footer>
+
+</div>
+</body>
+</html>

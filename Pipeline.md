@@ -1,5 +1,5 @@
 # Achilles: Conserved-Target Discovery Pipeline
-## Stage 1 — Automated Target Discovery, Structural Folding & Virtual Screening Documentation
+## Complete Three-Stage Documentation — Cells 0–13
 
 > [!NOTE]
 > **Project Goal**: Build an automated end-to-end pipeline that discovers priority germ targets, predicts their 3D structures, identifies druggable binding pockets, dynamically retrieves small-molecule candidate libraries, and evaluates binding affinities via molecular docking.
@@ -155,3 +155,222 @@ Running virtual screening calculations...
 4   Antiviral_agent_57                -3.42   Success
 ```
 * **Conclusion**: `Antiviral_agent_53` yields the lowest (most negative) binding free energy ($-4.24\text{ kcal/mol}$), making it the top candidate to carry forward into **Stage 2 (Mutation Testing)**.
+
+---
+
+## 📑 STAGE 2 — Mutation Testing & Conservation Scoring (Cells 6–8)
+
+### **Cell 6: Mutation Data Retrieval**
+* **Primary Objective**: Pull real-world variant sequences from NCBI and UniProt for the target protein, providing the empirical mutation landscape.
+* **APIs & Tools**: NCBI Entrez `esearch` + `efetch` (protein database), UniProt REST API fallback.
+* **Input**: `accession`, `domain_seq`, `germ_query` from Stage 1.
+* **Console Output Explanation**:
+  ```text
+  Target        : dengue NS3 protease
+  Type detected : Viral
+  NCBI protein: 42 records found. Fetching up to 50...
+    Collected 38 protein variant sequences from NCBI
+  ✓ Reference + 38 variant sequences saved → ./mutations/variants.fasta
+  ```
+  * `Type detected`: Auto-detected from `germ_query` keywords — determines which databases to prioritise (viral = NCBI nucleotide/protein; bacterial = NCBI protein + UniProt).
+  * `Reference + N variants`: The first sequence is always the Stage 1 domain sequence; all others are real-world isolates.
+* **Output**: `./mutations/variants.fasta`, integer `variant_count`.
+
+---
+
+### **Cell 7: Shannon Entropy Conservation Scoring**
+* **Primary Objective**: Multiple-sequence alignment (MSA) followed by per-position Shannon entropy to identify which residues are invariant across real-world samples.
+* **APIs & Tools**: MAFFT (`apt-get`), BioPython `AlignIO`, `numpy`, `matplotlib`.
+* **Mathematical Formula**:
+  $$H_i = -\sum_{a \in \text{AA}} p_{a,i} \log_2(p_{a,i})$$
+  * $H_i = 0$ → perfectly conserved (all sequences identical at position $i$).
+  * $H_i$ high → residue is rapidly mutating.
+* **Threshold**: Residues with $H_i < 0.5$ bits are flagged **CONSERVED** and stored in `conserved_positions`.
+* **Console Output Explanation**:
+  ```text
+  Alignment: 39 sequences × 194 positions
+  Conserved residues:   112 (H < 0.5) ← anchor targets
+  Variable residues:    66  (H ≥ 0.5)
+
+  Top 10 most conserved positions:
+   Position_0idx Residue  Shannon_Entropy     Status
+              21       G         0.000000  CONSERVED
+              22       I         0.000000  CONSERVED
+  ```
+* **Output**: `conservation_scores.csv` · `conservation_map.png` · `conserved_positions` list passed to Stage 3.
+
+---
+
+### **Cell 8: Pocket Integrity Check on Consensus Mutant**
+* **Primary Objective**: Construct a majority-vote consensus sequence from real-world variants and verify the pocket geometry is structurally intact.
+* **APIs & Tools**: BioPython `AlignIO`, AlphaFold DB REST API (`alphafold.ebi.ac.uk`).
+* **Consensus logic**: At each alignment column, the most frequent non-gap amino acid wins.
+* **Pocket integrity verdict**:
+
+| Sequence Identity | Conserved Anchor % | Verdict |
+|---|---|---|
+| ≥ 85% | ≥ 30% | **INTACT** → proceed to Stage 3 |
+| ≥ 70% | any | **PARTIAL** → focus on anchor residues only |
+| < 70% | any | **DISRUPTED** → consider alternate target |
+
+* **Console Output Explanation**:
+  ```text
+  Sequence identity (REF vs CONSENSUS): 94.4%
+  Conserved anchors in domain: 112/178 (62.9%)
+  AlphaFold reference pLDDT: 91.3/100
+
+  ✓ POCKET GEOMETRY CONFIRMED INTACT
+  → Target is suitable for Stage 3 binder design
+  ```
+* **Output**: `consensus_mutant.fasta` · `stage2_summary` dict · `pocket_status` string.
+
+---
+
+## 📑 STAGE 3 — Dual-Track Binder Design + Convergence Gate (Cells 9–13)
+
+### **Cell 9: Prior-Art Retrieval (IEDB · PDB · APD3 · DBAASP)**
+* **Primary Objective**: Establish what has already been attempted against this pocket class before designing new candidates.
+* **Data Sources**:
+
+| Database | Query | Records Saved |
+|---|---|---|
+| IEDB | Epitopes against `germ_query[0]` | `prior_art_epitopes.csv` |
+| RCSB PDB | Co-crystal inhibitor structures | printed summary |
+| APD3 | 8 curated validated AMP scaffolds | `prior_art_amps.csv` |
+| DBAASP | Live antiviral AMP sequences | `prior_art_amps.csv` |
+
+* **Fallback**: If IEDB returns no results, the domain sequence is tiled into 12-aa windows as synthetic epitope seeds.
+
+---
+
+### **Cell 10: Track A — Pocket-Anchored Binder Design**
+* **Primary Objective**: Generate de-novo binder scaffold candidates conditioned on the exact conserved pocket geometry from Stage 2.
+* **Design logic**:
+  * **N-flank** — charged/polar residues (RKHDE + STNQ) for aqueous solubility.
+  * **Core** — first 12 aa of the conserved anchor subsequence.
+  * **C-flank** — hydrophobic residues (AVILMFW) for pocket burial.
+* **Scoring (Guerois linear free energy relationship)**:
+  $$\Delta\Delta G \approx -0.0131 \times \text{BSA (Å}^2) + \text{hydrophobicity correction}$$
+* **Filters applied**:
+  * $\Delta\Delta G < -1.5 \text{ kcal/mol}$
+  * CamSol approximation ≥ −0.5 (solubility gate)
+  * BioPython instability index < 60 (stability gate)
+* **ESMFold API** (`esmatlas.com/api/fold`) — structure prediction check on top 5 candidates.
+* **Output**: `track_a_candidates.csv` (top 10 passing all filters).
+
+---
+
+### **Cell 11: Track B — Antimicrobial Peptide Design**
+* **Primary Objective**: Generate AMP candidates conditioned on the pocket epitope sequence using PSSM-guided sampling from known AMP scaffolds.
+* **Method**:
+  1. Build a 20-position × 20-AA Position-Specific Scoring Matrix (PSSM) from APD3 + DBAASP seeds.
+  2. Sample 80 candidate sequences — 40% probability of retaining each pocket epitope residue.
+* **Filters applied** (per proposal):
+
+| Metric | Threshold | Tool (proposal) | Implementation |
+|---|---|---|---|
+| AMP probability | ≥ 0.50 | APEX | CAMPR3 API + heuristic fallback |
+| Hemolytic risk | < 0.50 | ToxGIN | Hemopi-proxy formula |
+| Solubility | ≥ −0.50 | CamSol | GRAVY + charge approximation |
+
+* **Output**: `track_b_candidates.csv` (top 10 passing all filters).
+
+---
+
+### **Cell 12: Convergence Gate (AlphaFold-Multimer Interface Scoring)**
+* **Primary Objective**: All survivors from Track A and Track B are validated through a shared two-criterion gate, ensuring both structural fit and mutation-anchor engagement.
+* **Gate Criteria (BOTH must pass)**:
+  1. **ipTM ≥ 0.70** — predicted template modelling score for the binder–target interface.
+  2. **Conserved-residue contacts ≥ 60%** — at least 60% of predicted interface contacts land on residues confirmed conserved in Stage 2.
+* **Modes**:
+  ```python
+  SKIP_MULTIMER = True   # Default: fast lightweight approximation
+  SKIP_MULTIMER = False  # Full ColabFold AlphaFold-Multimer (GPU, ~10–30 min/complex)
+  ```
+* **Console Output Explanation**:
+  ```text
+  [A01] ipTM=0.724 | Contact=68.3% | PASS | RDESAAGVLYILVA...
+  [A02] ipTM=0.641 | Contact=71.0% | FAIL | HKESAAGVLYILVF...
+  [B01] ipTM=0.783 | Contact=65.0% | PASS | GIGKFLHSAKKFGK...
+
+  Candidates evaluated :  20
+  Passed gate          :  8
+  ```
+* **Output**: `convergence_results.csv`.
+
+---
+
+### **Cell 13: Final Leaderboard & Pipeline Report**
+* **Primary Objective**: Produce a unified ranked shortlist and a 5-panel visual report summarising the entire Achilles pipeline run.
+* **Composite ranking formula**:
+  $$\text{Score} = 0.50 \times \text{ipTM} + 0.30 \times \frac{\text{Contact\%}}{100} + 0.20 \times \text{Track Score (normalised)}$$
+* **5-Panel Dashboard** (`achilles_pipeline_report.png`):
+
+| Panel | Content |
+|---|---|
+| Top-left (wide) | Stage 2 conservation entropy bar chart (green = conserved, red = variable) |
+| Top-right | Stage 3 convergence gate pass/fail pie chart |
+| Bottom-left | Track A ΔΔG score distribution histogram |
+| Bottom-centre | Track B AMP probability distribution histogram |
+| Bottom-right | Final shortlist scatter — ipTM vs. conserved contact % |
+
+* **Output**: `achilles_pipeline_report.png` · `achilles_final_report.csv`
+
+---
+
+## 🏆 Final Stage 3 Output Example
+
+```text
+=================================================================
+  STAGE 3 FINAL LEADERBOARD — DENGUE NS3 PROTEASE
+=================================================================
+  Rank  Track  Sequence                     ipTM    Contact%  Gate
+  ----- ------ ---------------------------- ------- --------- ----
+  1     B      GIGKFLHSAKKFGKAFVGE...       0.812   72.3      PASS
+  2     A      RDESSAAGVLYILVAFILL...       0.741   68.1      PASS
+  3     B      KWKLWKKIEKWLKGALGSL...       0.724   64.5      PASS
+
+  Passed: 8  |  Total evaluated: 20
+=================================================================
+```
+
+---
+
+## 🗂️ Complete Output File Tree
+
+```
+./
+├── {accession}_{domain}.fasta             ← Cell 0  (target FASTA)
+├── results/*rank_001*.pdb                 ← Cell 1  (predicted structure)
+│   └── *_out/pockets/pocket1_atm.pdb      ← Cell 2  (top pocket)
+├── screening_library/*.sdf                ← Cell 4  (compound library)
+├── mutations/
+│   ├── variants.fasta                     ← Cell 6  (variant sequences)
+│   ├── variants_aligned.fasta             ← Cell 7  (MSA output)
+│   ├── conservation_scores.csv            ← Cell 7  (per-position entropy)
+│   ├── conservation_map.png               ← Cell 7  (visualisation)
+│   └── consensus_mutant.fasta             ← Cell 8  (consensus sequence)
+├── stage3/
+│   ├── prior_art_epitopes.csv             ← Cell 9  (IEDB seeds)
+│   ├── prior_art_amps.csv                 ← Cell 9  (APD3 + DBAASP seeds)
+│   ├── track_a_all.csv                    ← Cell 10 (all scaffolds scored)
+│   ├── track_a_candidates.csv             ← Cell 10 (top 10 passing)
+│   ├── track_b_all.csv                    ← Cell 11 (all AMPs scored)
+│   ├── track_b_candidates.csv             ← Cell 11 (top 10 passing)
+│   ├── convergence_results.csv            ← Cell 12 (gate results)
+│   └── achilles_pipeline_report.png       ← Cell 13 (5-panel figure)
+└── achilles_final_report.csv              ← Cell 13 (final ranked shortlist)
+```
+
+---
+
+## ⚙️ Running on Google Colab (Recommended)
+
+```
+Runtime → Change runtime type → T4 GPU
+
+Cells 0–5   Stage 1  (~30–45 min, mostly Cell 1 AlphaFold folding)
+Cells 6–8   Stage 2  (~5–8 min)
+Cells 9–13  Stage 3  (~8–12 min in SKIP_MULTIMER=True mode)
+             Stage 3  (~2–6 hrs in full AlphaFold-Multimer mode)
+```
